@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -18,15 +19,17 @@ import (
 var RedString = color.New(color.FgRed).SprintFunc()
 var RepoFlag = cli.StringFlag{
 	Name:   "repo, r",
-	Usage:  RedString("[REQUIRED]") + " Repository to operate on",
+	Usage:  "[REQUIRED] Repository to operate on",
 	EnvVar: "GIB_REPO",
 }
 
 func main() {
-	app := cli.NewApp()
+	// Just to be safe, disable pretty colours for windows users
+	if runtime.GOOS == "windows" {
+		color.NoColor = true
+	}
 
-	// create a copy of a repo flag, we're going to reuse it a bit
-	// list all available commands
+	app := cli.NewApp()
 	app.Commands = []cli.Command{
 		ListCommand,
 		MergeCommand,
@@ -49,6 +52,7 @@ func ParseRepoFlag(c *cli.Context) (string, string) {
 	if len(urlSplit) == 2 {
 		repo = urlSplit[1]
 	}
+	// now split into the user and repo
 	repoSplit := strings.Split(repo, "/")
 	if len(repoSplit) != 2 {
 		color.Red("Error: Bad repository supplied. Should be of format `user/repo`\n")
@@ -57,6 +61,7 @@ func ParseRepoFlag(c *cli.Context) (string, string) {
 	return repoSplit[0], repoSplit[1]
 }
 
+// request the user's github credentials, then create a transport
 func CreateBasicAuthTransport() github.BasicAuthTransport {
 	r := bufio.NewReader(os.Stdin)
 	fmt.Print("GitHub Username: ")

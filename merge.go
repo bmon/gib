@@ -30,6 +30,10 @@ func mergeAction(c *cli.Context) error {
 	userStr, repoStr := ParseRepoFlag(c)
 	color.Green("Merging pull request into https://github.com/%s/%s/", userStr, repoStr)
 
+	// ask the user to provide their authenitcation credentials, then
+	// test with an authenticated request.
+	//
+	// https://github.com/google/go-github/blob/master/example/basicauth/main.go
 	tp := CreateBasicAuthTransport()
 	client := github.NewClient(tp.Client())
 
@@ -48,8 +52,11 @@ func mergeAction(c *cli.Context) error {
 		return err
 	}
 
+	// the user has authenticated correctly.
+
+	// ask for the pull request if not supplied
 	pullNumberStr := c.Args().Get(0)
-	if pullNumberStr == "" {
+	for pullNumberStr == "" {
 		fmt.Print("Enter the pull request number to merge: ")
 		var err error
 		pullNumberStr, err = reader.ReadString('\n')
@@ -57,22 +64,24 @@ func mergeAction(c *cli.Context) error {
 			color.Red("Error:", err.Error())
 			return err
 		}
+		// trim extra chars off
+		pullNumberStr = strings.Trim(pullNumberStr, " \n")
 	}
 
+	// convert pullnumber into integer
 	pullNumber, err := strconv.Atoi(pullNumberStr)
 	if err != nil {
-		color.Red("Error:", err.Error())
+		color.Red("Error: %s is not a valid pull request number.", pullNumberStr)
 		return err
 	}
 
+	// make a request for the pull request we're going to merge,
+	// so the user can confirm it's the right one.
 	pull, resp, err := client.PullRequests.Get(ctx, userStr, repoStr, pullNumber)
-	fmt.Printf("rate-limit:%d, remaining:%d, rate-limit resets %s\n", resp.Limit, resp.Remaining, humanize.Time(resp.Reset.Time))
 	if err != nil {
 		if _, ok := err.(*github.RateLimitError); ok {
 			color.Red("Error: Rate limit exceeded\n")
 			fmt.Printf("rate-limit:%d, remaining:%d, rate-limit resets %s\n", resp.Limit, resp.Remaining, humanize.Time(resp.Reset.Time))
-			fmt.Println("Unauthenticated users are limited to 60 requests per hour")
-			fmt.Println("Authenticated users get 5000 requests an hour")
 			cli.OsExiter(1)
 		}
 		color.Red("Error: unhandled api failure")
@@ -80,6 +89,7 @@ func mergeAction(c *cli.Context) error {
 		return err
 	}
 
+	// require the user to confirm they will merge this pr
 	user = pull.GetUser()
 	for confirmed := false; confirmed != true; {
 		fmt.Printf("Merge #%d %s by %s? [y/n] ", pull.GetNumber(), boldString(pull.GetTitle()), user.GetLogin())
@@ -99,6 +109,7 @@ func mergeAction(c *cli.Context) error {
 		}
 	}
 
+	// retrieve a (possibly multiline) commit message to add onto the merge
 	fmt.Println("Please enter a commit message for the merge (or leave blank):")
 	var msg string
 	prevEmpty := true
@@ -122,6 +133,7 @@ func mergeAction(c *cli.Context) error {
 		msg += "\n"
 	}
 
+	// perform the merge.
 	res, resp, err := client.PullRequests.Merge(
 		ctx, userStr, repoStr, pullNumber, msg,
 		&github.PullRequestOptions{MergeMethod: c.String("method")},
@@ -131,8 +143,6 @@ func mergeAction(c *cli.Context) error {
 		if _, ok := err.(*github.RateLimitError); ok {
 			color.Red("Error: Rate limit exceeded\n")
 			fmt.Printf("rate-limit:%d, remaining:%d, rate-limit resets %s\n", resp.Limit, resp.Remaining, humanize.Time(resp.Reset.Time))
-			fmt.Println("Unauthenticated users are limited to 60 requests per hour")
-			fmt.Println("Authenticated users get 5000 requests an hour")
 			cli.OsExiter(1)
 		}
 		color.Red(err.Error())

@@ -43,8 +43,12 @@ func listAction(c *cli.Context) error {
 	userStr, repoStr := ParseRepoFlag(c)
 	color.Green("Listing pull requests for https://github.com/%s/%s/", userStr, repoStr)
 
+	// create the github client.
 	client := github.NewClient(nil)
+
+	// for loop enables pagination
 	for page := 1; ; page++ {
+		// request the pull requests for this page
 		pulls, resp, err := client.PullRequests.List(
 			ctx, userStr, repoStr,
 			&github.PullRequestListOptions{
@@ -53,7 +57,11 @@ func listAction(c *cli.Context) error {
 				ListOptions: github.ListOptions{Page: page, PerPage: c.Int("per-page")},
 			},
 		)
+
 		if err != nil {
+			// if we hit the rate limit, display how long till it resets and
+			// provide info on authenticating.
+			// TODO: support authentication for the list command
 			if _, ok := err.(*github.RateLimitError); ok {
 				color.Red("Error: Rate limit exceeded\n")
 				fmt.Printf("rate-limit:%d, remaining:%d, rate-limit resets %s\n", resp.Limit, resp.Remaining, humanize.Time(resp.Reset.Time))
@@ -66,7 +74,7 @@ func listAction(c *cli.Context) error {
 			return err
 		}
 
-		// range over the pull requests and render them
+		// range over the retrieved pull requests and render them
 		for _, pull := range pulls {
 			user := pull.GetUser()
 			fmt.Printf("#%d %s by %s Last Updated %s\n", pull.GetNumber(), boldString(pull.GetTitle()), user.GetLogin(), humanize.Time(pull.GetUpdatedAt()))
@@ -74,11 +82,14 @@ func listAction(c *cli.Context) error {
 
 		// if we're out of pull requests to retrieve, quit.
 		if len(pulls) == 0 || len(pulls) != c.Int("per-page") {
+			// and if we never retrieved any, supply some feedback
 			if len(pulls) == 0 && page == 1 {
 				fmt.Println("No results.")
 			}
 			break
 		}
+
+		// otherwise we're paginating. Give the user a chance to ctrl-c first though
 		fmt.Printf("Page %d of %d...", page, resp.LastPage)
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
 	}
